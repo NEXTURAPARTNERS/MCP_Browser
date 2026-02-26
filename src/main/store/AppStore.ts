@@ -6,8 +6,12 @@ import type { MCPServerConfig, ServerWithStatus } from '../mcp/MCPServerConfig.j
 interface StoreSchema {
   encryptedApiKey: string
   encryptedBraveApiKey: string
+  encryptedOllamaKey: string
   enabledServers: string[]
   customServers: MCPServerConfig[]
+  aiBackend: 'claude' | 'ollama'
+  ollamaUrl: string
+  ollamaModel: string
 }
 
 export class AppStore {
@@ -19,8 +23,14 @@ export class AppStore {
       defaults: {
         encryptedApiKey: '',
         encryptedBraveApiKey: '',
+        encryptedOllamaKey: '',
         enabledServers: BUILTIN_SERVERS.filter((s) => s.defaultEnabled).map((s) => s.id),
-        customServers: []
+        customServers: [],
+        aiBackend: 'claude',
+        ollamaUrl: '',
+        ollamaModel: 'llama3.1',
+        anthropicBaseUrl: '',
+        anthropicModel: 'claude-opus-4-6'
       }
     })
   }
@@ -65,6 +75,66 @@ export class AppStore {
 
   loadBraveApiKey(): string | null {
     const stored = this.store.get('encryptedBraveApiKey', '')
+    if (!stored) return null
+    if (!safeStorage.isEncryptionAvailable()) return stored
+    try {
+      return safeStorage.decryptString(Buffer.from(stored, 'base64'))
+    } catch {
+      return null
+    }
+  }
+
+  // --- AI Backend ---
+
+  getAiBackend(): 'claude' | 'ollama' {
+    return this.store.get('aiBackend', 'claude')
+  }
+
+  setAiBackend(backend: 'claude' | 'ollama'): void {
+    this.store.set('aiBackend', backend)
+  }
+
+  // --- Anthropic config ---
+
+  getAnthropicBaseUrl(): string {
+    return this.store.get('anthropicBaseUrl', '')
+  }
+
+  getAnthropicModel(): string {
+    return this.store.get('anthropicModel', 'claude-opus-4-6')
+  }
+
+  saveAnthropicConfig(baseUrl: string, model: string): void {
+    this.store.set('anthropicBaseUrl', baseUrl)
+    this.store.set('anthropicModel', model || 'claude-opus-4-6')
+  }
+
+  // --- Ollama / OpenAI-compatible config ---
+
+  getOllamaUrl(): string {
+    return this.store.get('ollamaUrl', '')
+  }
+
+  getOllamaModel(): string {
+    return this.store.get('ollamaModel', 'llama3.1')
+  }
+
+  saveOllamaConfig(url: string, model: string): void {
+    this.store.set('ollamaUrl', url)
+    this.store.set('ollamaModel', model || 'llama3.1')
+  }
+
+  saveOllamaKey(plaintext: string): void {
+    if (!safeStorage.isEncryptionAvailable()) {
+      this.store.set('encryptedOllamaKey', plaintext)
+      return
+    }
+    const encrypted = safeStorage.encryptString(plaintext)
+    this.store.set('encryptedOllamaKey', encrypted.toString('base64'))
+  }
+
+  loadOllamaKey(): string | null {
+    const stored = this.store.get('encryptedOllamaKey', '')
     if (!stored) return null
     if (!safeStorage.isEncryptionAvailable()) return stored
     try {

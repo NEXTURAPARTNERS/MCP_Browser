@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { AddressBar } from './components/AddressBar.js'
-import { ContentPane } from './components/ContentPane.js'
+import { ContentPane, type ContentPaneHandle } from './components/ContentPane.js'
 import { StatusBar } from './components/StatusBar.js'
 import { SettingsPage } from './components/settings/SettingsPage.js'
 import { useQuery } from './hooks/useQuery.js'
@@ -8,9 +8,11 @@ import { useNavigation } from './hooks/useNavigation.js'
 
 export function App() {
   const [showSettings, setShowSettings] = useState(false)
-  const { isLoading, progress, html, submitQuery } = useQuery()
+  const { isLoading, progress, html, submitQuery, cancelQuery } = useQuery()
   const { currentQuery, navigate, back, forward, canGoBack, canGoForward, history, currentIndex } =
     useNavigation()
+
+  const contentPaneRef = useRef<ContentPaneHandle>(null)
 
   const handleSubmit = (query: string) => {
     navigate(query)
@@ -39,13 +41,16 @@ export function App() {
         isLoading={isLoading}
         canGoBack={canGoBack}
         canGoForward={canGoForward}
+        hasContent={!!html}
         onSubmit={handleSubmit}
         onBack={handleBack}
         onForward={handleForward}
+        onCancel={cancelQuery}
+        onPrint={() => contentPaneRef.current?.print()}
         onSettings={() => setShowSettings(true)}
       />
       {isLoading && <StatusBar progress={progress} isLoading={isLoading} />}
-      <ContentPane html={html} isLoading={isLoading} />
+      <ContentPane ref={contentPaneRef} html={html} isLoading={isLoading} />
       {showSettings && <SettingsPage onClose={() => setShowSettings(false)} />}
     </div>
   )

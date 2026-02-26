@@ -31,6 +31,27 @@ contextBridge.exposeInMainWorld('mcpBrowser', {
   setApiKey: (key: string, type?: string) => ipcRenderer.invoke(IPC.API_KEY_SET, key, type),
   hasApiKey: (): Promise<boolean> => ipcRenderer.invoke(IPC.API_KEY_HAS),
 
+  // AI Backend
+  getBackend: (): Promise<'claude' | 'ollama'> => ipcRenderer.invoke(IPC.BACKEND_GET),
+  setBackend: (backend: 'claude' | 'ollama'): Promise<void> =>
+    ipcRenderer.invoke(IPC.BACKEND_SET, backend),
+
+  // Anthropic config
+  getAnthropicConfig: (): Promise<{ baseUrl: string; model: string }> =>
+    ipcRenderer.invoke(IPC.ANTHROPIC_CONFIG_GET),
+  setAnthropicConfig: (baseUrl: string, model: string): Promise<void> =>
+    ipcRenderer.invoke(IPC.ANTHROPIC_CONFIG_SET, baseUrl, model),
+
+  // Ollama / OpenAI-compatible config
+  getOllamaConfig: (): Promise<{ url: string; model: string; hasKey: boolean }> =>
+    ipcRenderer.invoke(IPC.OLLAMA_CONFIG_GET),
+  setOllamaConfig: (url: string, model: string, key?: string): Promise<void> =>
+    ipcRenderer.invoke(IPC.OLLAMA_CONFIG_SET, url, model, key),
+  testOllamaConnection: (url: string, key?: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke(IPC.OLLAMA_TEST_CONNECTION, url, key),
+  fetchOllamaModels: (url: string, key?: string): Promise<string[]> =>
+    ipcRenderer.invoke(IPC.OLLAMA_FETCH_MODELS, url, key),
+
   // System
   openExternal: (url: string) => ipcRenderer.invoke(IPC.OPEN_EXTERNAL, url)
 })

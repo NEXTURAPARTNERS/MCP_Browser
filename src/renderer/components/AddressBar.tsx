@@ -5,9 +5,12 @@ interface AddressBarProps {
   isLoading: boolean
   canGoBack: boolean
   canGoForward: boolean
+  hasContent: boolean
   onSubmit: (query: string) => void
   onBack: () => void
   onForward: () => void
+  onCancel: () => void
+  onPrint: () => void
   onSettings: () => void
 }
 
@@ -16,9 +19,12 @@ export function AddressBar({
   isLoading,
   canGoBack,
   canGoForward,
+  hasContent,
   onSubmit,
   onBack,
   onForward,
+  onCancel,
+  onPrint,
   onSettings
 }: AddressBarProps) {
   const [value, setValue] = useState(currentQuery)
@@ -33,8 +39,12 @@ export function AddressBar({
       onSubmit(value.trim())
       inputRef.current?.blur()
     } else if (e.key === 'Escape') {
-      setValue(currentQuery)
-      inputRef.current?.blur()
+      if (isLoading) {
+        onCancel()
+      } else {
+        setValue(currentQuery)
+        inputRef.current?.blur()
+      }
     }
   }
 
@@ -74,14 +84,26 @@ export function AddressBar({
           style={styles.input}
           disabled={isLoading}
         />
-        {value && !isLoading && (
-          <button onClick={() => setValue('')} style={styles.clearBtn} title="Wissen">
-            ×
+        {isLoading ? (
+          <button onClick={onCancel} style={styles.cancelBtn} title="Annuleren (Esc)">
+            ✕
           </button>
+        ) : (
+          value && (
+            <button onClick={() => setValue('')} style={styles.clearBtn} title="Wissen">
+              ×
+            </button>
+          )
         )}
       </div>
 
-      <button onClick={onSettings} style={styles.settingsBtn} title="Instellingen">
+      {hasContent && !isLoading && (
+        <button onClick={onPrint} style={styles.iconBtn} title="Afdrukken">
+          🖨
+        </button>
+      )}
+
+      <button onClick={onSettings} style={styles.iconBtn} title="Instellingen">
         ⚙
       </button>
     </div>
@@ -109,6 +131,8 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 16,
     color: '#555',
     background: 'transparent',
+    border: 'none',
+    cursor: 'pointer',
     WebkitAppRegion: 'no-drag' as never,
     transition: 'background 0.1s'
   },
@@ -144,15 +168,33 @@ const styles: Record<string, React.CSSProperties> = {
     flex: 1,
     background: 'transparent',
     color: '#333',
-    fontSize: 14
+    fontSize: 14,
+    border: 'none',
+    outline: 'none'
   },
   clearBtn: {
     fontSize: 18,
     color: '#999',
     lineHeight: 1,
-    padding: '0 2px'
+    padding: '0 2px',
+    background: 'transparent',
+    border: 'none',
+    cursor: 'pointer'
   },
-  settingsBtn: {
+  cancelBtn: {
+    fontSize: 13,
+    color: '#cc3300',
+    fontWeight: 600,
+    lineHeight: 1,
+    padding: '2px 6px',
+    background: '#fff0ee',
+    border: '1px solid #ffcccc',
+    borderRadius: 4,
+    cursor: 'pointer',
+    WebkitAppRegion: 'no-drag' as never,
+    flexShrink: 0
+  },
+  iconBtn: {
     width: 34,
     height: 34,
     display: 'flex',
@@ -162,6 +204,8 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 18,
     color: '#555',
     background: 'transparent',
+    border: 'none',
+    cursor: 'pointer',
     WebkitAppRegion: 'no-drag' as never
   }
 }

@@ -1,12 +1,5 @@
-import Anthropic from '@anthropic-ai/sdk'
 import type { MCPClientManager } from '../mcp/MCPClientManager.js'
-
-export type ProgressEvent =
-  | { type: 'tool_call'; toolName: string; serverId: string; input: Record<string, unknown> }
-  | { type: 'tool_result'; toolName: string; ok: boolean }
-  | { type: 'thinking'; text: string }
-  | { type: 'done'; html: string }
-  | { type: 'error'; message: string }
+import type { ProgressEvent } from './AgentLoop.js'
 
 const SYSTEM_PROMPT = `You are MCP Browser, an AI-powered information browser.
 The user has asked a question. Use the available tools to gather accurate, up-to-date information.
@@ -25,26 +18,72 @@ Return your final answer as a complete, self-contained HTML document with the fo
 
 const MAX_ITERATIONS = 20
 
-export class AgentLoop {
-  private anthropic: Anthropic
-  private mcpManager: MCPClientManager
-  private model: string
+interface OpenAITool {
+  type: 'function'
+  function: {
+    name: string
+    description: string
+    parameters: Record<string, unknown>
+  }
+}
 
-  constructor(apiKey: string, mcpManager: MCPClientManager, baseURL?: string, model?: string) {
-    this.anthropic = new Anthropic({ apiKey, ...(baseURL ? { baseURL } : {}) })
+interface OpenAIMessage {
+  role: 'system' | 'user' | 'assistant' | 'tool'
+  content: string | null
+  tool_calls?: Array<{
+    id: string
+    type: 'function'
+    function: { name: string; arguments: string }
+  }>
+  tool_call_id?: string
+}
+
+interface OpenAIResponse {
+  choices: Array<{
+    finish_reason: 'stop' | 'tool_calls' | 'length' | string
+    message: {
+      role: 'assistant'
+      content: string | null
+      tool_calls?: Array<{
+        id: string
+        type: 'function'
+        function: { name: string; arguments: string }
+      }>
+    }
+  }>
+}
+
+export class OllamaAgentLoop {
+  private baseUrl: string
+  private model: string
+  private apiKey: string | null
+  private mcpManager: MCPClientManager
+
+  constructor(
+    url: string,
+    model: string,
+    apiKey: string | null,
+    mcpManager: MCPClientManager
+  ) {
+    // Strip trailing slash
+    this.baseUrl = url.replace(/\/+$/, '')
+    this.model = model
+    this.apiKey = apiKey
     this.mcpManager = mcpManager
-    this.model = model || 'claude-opus-4-6'
   }
 
   async *run(userQuery: string): AsyncGenerator<ProgressEvent> {
-    // 1. Gather all tools from enabled MCP servers
-    let tools: Anthropic.Tool[]
+    // 1. Gather tools
+    let tools: OpenAITool[]
     try {
       const connectedTools = await this.mcpManager.getAllTools()
       tools = connectedTools.map((ct) => ({
-        name: ct.tool.name,
-        description: ct.tool.description ?? '',
-        input_schema: ct.tool.inputSchema as Anthropic.Tool['input_schema']
+        type: 'function' as const,
+        function: {
+          name: ct.tool.name,
+          description: ct.tool.description ?? '',
+          parameters: (ct.tool.inputSchema as Record<string, unknown>) ?? { type: 'object', properties: {} }
+        }
       }))
     } catch (err) {
       yield { type: 'error', message: `Kon geen MCP-tools laden: ${String(err)}` }
@@ -52,99 +91,113 @@ export class AgentLoop {
     }
 
     if (tools.length === 0) {
-      // Collect actual connection errors to show the user what went wrong
       const errors = this.mcpManager.getAllConnectionErrors()
       const errorLines = Object.entries(errors)
         .map(([id, msg]) => `• ${id}: ${msg}`)
         .join('\n')
-
       const message = errorLines
         ? `Geen MCP-servers konden verbinden:\n\n${errorLines}\n\nControleer of Node.js correct is geïnstalleerd en of de servers zijn ingeschakeld.`
         : 'Geen MCP-servers actief. Schakel minstens één server in via ⚙ Instellingen.'
-
       yield { type: 'error', message }
       return
     }
 
     // 2. Build message history
-    const messages: Anthropic.MessageParam[] = [{ role: 'user', content: userQuery }]
+    const messages: OpenAIMessage[] = [
+      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'user', content: userQuery }
+    ]
 
     // 3. Agentic loop
     for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
-      let response: Anthropic.Message
+      let response: OpenAIResponse
       try {
-        response = await this.anthropic.messages.create({
-          model: this.model,
-          max_tokens: 8192,
-          system: SYSTEM_PROMPT,
-          tools,
-          messages
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+        if (this.apiKey) headers['Authorization'] = `Bearer ${this.apiKey}`
+
+        const res = await fetch(`${this.baseUrl}/v1/chat/completions`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            model: this.model,
+            messages,
+            tools: tools.length > 0 ? tools : undefined,
+            tool_choice: tools.length > 0 ? 'auto' : undefined
+          }),
+          signal: AbortSignal.timeout(120_000)
         })
+
+        if (!res.ok) {
+          const errText = await res.text().catch(() => res.statusText)
+          yield { type: 'error', message: `OpenAI API fout ${res.status}: ${errText}` }
+          return
+        }
+
+        response = (await res.json()) as OpenAIResponse
       } catch (err) {
-        yield { type: 'error', message: `Claude API fout: ${String(err)}` }
+        yield { type: 'error', message: `Verbindingsfout: ${String(err)}` }
         return
       }
 
-      const toolUseBlocks = response.content.filter(
-        (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use'
-      )
-      const textBlocks = response.content.filter(
-        (b): b is Anthropic.TextBlock => b.type === 'text'
-      )
+      const choice = response.choices?.[0]
+      if (!choice) {
+        yield { type: 'error', message: 'Leeg antwoord van API.' }
+        return
+      }
 
-      // Stream intermediate reasoning text
-      for (const tb of textBlocks) {
-        if (tb.text.trim()) {
-          yield { type: 'thinking', text: tb.text }
-        }
+      const { finish_reason, message } = choice
+      const toolCalls = message.tool_calls ?? []
+      const textContent = message.content ?? ''
+
+      // Stream reasoning text
+      if (textContent.trim()) {
+        yield { type: 'thinking', text: textContent }
       }
 
       // No tool calls → final answer
-      if (toolUseBlocks.length === 0 || response.stop_reason === 'end_turn') {
-        const finalText = textBlocks.map((b) => b.text).join('')
-        yield { type: 'done', html: extractOrWrapHTML(finalText, userQuery) }
+      if (finish_reason === 'stop' || toolCalls.length === 0) {
+        yield { type: 'done', html: extractOrWrapHTML(textContent, userQuery) }
         return
       }
 
-      // Add Claude's response to history
-      messages.push({ role: 'assistant', content: response.content })
+      // Add assistant message to history
+      messages.push({
+        role: 'assistant',
+        content: textContent || null,
+        tool_calls: toolCalls
+      })
 
       // Execute tool calls
-      const toolResults: Anthropic.ToolResultBlockParam[] = []
-      for (const toolUse of toolUseBlocks) {
-        const serverId = toolUse.name.split('__')[0]
-        yield {
-          type: 'tool_call',
-          toolName: toolUse.name,
-          serverId,
-          input: toolUse.input as Record<string, unknown>
+      for (const toolCall of toolCalls) {
+        const toolName = toolCall.function.name
+        const serverId = toolName.split('__')[0]
+        let toolInput: Record<string, unknown> = {}
+        try {
+          toolInput = JSON.parse(toolCall.function.arguments || '{}') as Record<string, unknown>
+        } catch {
+          // keep empty object
         }
 
+        yield { type: 'tool_call', toolName, serverId, input: toolInput }
+
         try {
-          const result = await this.mcpManager.callTool(
-            toolUse.name,
-            toolUse.input as Record<string, unknown>
-          )
+          const result = await this.mcpManager.callTool(toolName, toolInput)
           const resultText = typeof result === 'string' ? result : JSON.stringify(result, null, 2)
-          yield { type: 'tool_result', toolName: toolUse.name, ok: true }
-          toolResults.push({
-            type: 'tool_result',
-            tool_use_id: toolUse.id,
+          yield { type: 'tool_result', toolName, ok: true }
+          messages.push({
+            role: 'tool',
+            tool_call_id: toolCall.id,
             content: resultText
           })
         } catch (err) {
-          yield { type: 'tool_result', toolName: toolUse.name, ok: false }
-          toolResults.push({
-            type: 'tool_result',
-            tool_use_id: toolUse.id,
-            content: `Fout bij uitvoeren tool: ${String(err)}`,
-            is_error: true
+          yield { type: 'tool_result', toolName, ok: false }
+          messages.push({
+            role: 'tool',
+            tool_call_id: toolCall.id,
+            content: `Fout bij uitvoeren tool: ${String(err)}`
           })
         }
       }
-
-      // Feed results back
-      messages.push({ role: 'user', content: toolResults })
     }
 
     yield {
@@ -155,14 +208,12 @@ export class AgentLoop {
 }
 
 function extractOrWrapHTML(text: string, query: string): string {
-  // Try to extract a full HTML document from the text
   const doctypeIdx = text.indexOf('<!DOCTYPE')
   const htmlCloseIdx = text.lastIndexOf('</html>')
   if (doctypeIdx >= 0 && htmlCloseIdx > doctypeIdx) {
     return text.slice(doctypeIdx, htmlCloseIdx + 7)
   }
 
-  // Wrap plain text / markdown in minimal HTML
   const escaped = escapeHTML(query)
   const body = simpleMarkdownToHTML(text)
   return `<!DOCTYPE html>
@@ -200,23 +251,15 @@ function escapeHTML(text: string): string {
 function simpleMarkdownToHTML(text: string): string {
   return (
     text
-      // Code blocks
       .replace(/```[\w]*\n?([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
-      // Bold
       .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-      // Italic
       .replace(/\*(.*?)\*/g, '<em>$1</em>')
-      // Inline code
       .replace(/`([^`]+)`/g, '<code>$1</code>')
-      // Links
       .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>')
-      // Headings
       .replace(/^### (.+)$/gm, '<h3>$1</h3>')
       .replace(/^## (.+)$/gm, '<h2>$1</h2>')
       .replace(/^# (.+)$/gm, '<h1>$1</h1>')
-      // Unordered list items
       .replace(/^[-*] (.+)$/gm, '<li>$1</li>')
-      // Paragraphs (blank line separated)
       .replace(/\n\n/g, '</p><p>')
       .replace(/^(?!<[hlu]|<pre|<block)(.+)$/gm, (m) => m)
   )

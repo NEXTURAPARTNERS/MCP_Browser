@@ -14,6 +14,20 @@ export const IPC = {
   API_KEY_SET: 'apiKey:set',
   API_KEY_HAS: 'apiKey:has',
 
+  // AI Backend
+  BACKEND_GET: 'backend:get',
+  BACKEND_SET: 'backend:set',
+
+  // Anthropic config
+  ANTHROPIC_CONFIG_GET: 'anthropic:configGet',
+  ANTHROPIC_CONFIG_SET: 'anthropic:configSet',
+
+  // Ollama / OpenAI-compatible config
+  OLLAMA_CONFIG_GET: 'ollama:configGet',
+  OLLAMA_CONFIG_SET: 'ollama:configSet',
+  OLLAMA_TEST_CONNECTION: 'ollama:testConnection',
+  OLLAMA_FETCH_MODELS: 'ollama:fetchModels',
+
   // System
   OPEN_EXTERNAL: 'system:openExternal',
 } as const

@@ -1,12 +1,23 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, forwardRef, useImperativeHandle } from 'react'
 
 interface ContentPaneProps {
   html: string | null
   isLoading: boolean
 }
 
-export function ContentPane({ html, isLoading }: ContentPaneProps) {
+export interface ContentPaneHandle {
+  print: () => void
+}
+
+export const ContentPane = forwardRef<ContentPaneHandle, ContentPaneProps>(
+  function ContentPane({ html, isLoading }, ref) {
   const webviewRef = useRef<Electron.WebviewTag>(null)
+
+  useImperativeHandle(ref, () => ({
+    print: () => {
+      webviewRef.current?.print()
+    }
+  }))
 
   useEffect(() => {
     const wv = webviewRef.current
@@ -75,7 +86,7 @@ export function ContentPane({ html, isLoading }: ContentPaneProps) {
       />
     </div>
   )
-}
+})
 
 const styles: Record<string, React.CSSProperties> = {
   container: {

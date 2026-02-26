@@ -50,6 +50,21 @@ interface MCPBrowserAPI {
   searchRegistry(query: string): Promise<RegistryServer[]>
   setApiKey(key: string, type?: string): Promise<void>
   hasApiKey(): Promise<boolean>
+
+  // AI Backend
+  getBackend(): Promise<'claude' | 'ollama'>
+  setBackend(backend: 'claude' | 'ollama'): Promise<void>
+
+  // Anthropic config
+  getAnthropicConfig(): Promise<{ baseUrl: string; model: string }>
+  setAnthropicConfig(baseUrl: string, model: string): Promise<void>
+
+  // Ollama / OpenAI-compatible config
+  getOllamaConfig(): Promise<{ url: string; model: string; hasKey: boolean }>
+  setOllamaConfig(url: string, model: string, key?: string): Promise<void>
+  testOllamaConnection(url: string, key?: string): Promise<{ ok: boolean; error?: string }>
+  fetchOllamaModels(url: string, key?: string): Promise<string[]>
+
   openExternal(url: string): Promise<void>
 }
 
