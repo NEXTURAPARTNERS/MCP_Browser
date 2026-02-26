@@ -1,0 +1,73 @@
+appId: nl.mcpbrowser.app
+productName: MCP Browser
+copyright: Copyright © 2026
+
+directories:
+  buildResources: resources
+  output: dist
+
+# Files — blacklist approach: include everything, exclude dev-only files
+files:
+  - '!**/.vscode/*'
+  - '!src/**'
+  - '!{.eslintignore,.eslintrc.cjs,.prettierrc.yaml,CHANGELOG.md,README.md}'
+  - '!{.env,.env.*,pnpm-lock.yaml}'
+  - '!{tsconfig.json,tsconfig.*.json}'
+  - '!vite.config.*'
+  - '!start-dev.sh'
+
+# Bundled MCP server scripts must be outside the asar so Node.js can execute them
+asarUnpack:
+  - out/servers/**
+
+# macOS — produces a .dmg installer
+mac:
+  category: public.app-category.productivity
+  icon: resources/icon.png
+  target:
+    - target: dmg
+      arch: [x64, arm64]
+  # For App Store / notarisation, uncomment:
+  # identity: "Developer ID Application: Your Name (TEAMID)"
+  notarize: false
+
+dmg:
+  title: MCP Browser
+  artifactName: MCP-Browser-${version}-${arch}.dmg
+  window:
+    width: 540
+    height: 380
+  contents:
+    - x: 140
+      y: 180
+      type: file
+    - x: 400
+      y: 180
+      type: link
+      path: /Applications
+
+# Windows — produces a friendly NSIS installer (.exe)
+win:
+  icon: resources/icon.ico
+  target:
+    - target: nsis
+      arch: [x64]
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  artifactName: MCP-Browser-Setup-${version}.exe
+
+# Linux — produces an AppImage (runs on any distro, no install needed)
+linux:
+  category: Utility
+  target:
+    - target: AppImage
+      arch: [x64]
+
+appImage:
+  artifactName: MCP-Browser-${version}.AppImage
+
+npmRebuild: false

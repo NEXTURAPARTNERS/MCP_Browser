@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+
+# Build output
+out/
+dist/
+
+# Environment
+.env
+.env.*
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# macOS
+.DS_Store
+**/.DS_Store
+
+# Logs
+*.log
+npm-debug.log*
+
+# electron-builder cache
+dist/mac/
+dist/mac-arm64/
+dist/win-unpacked/
+dist/linux-unpacked/
+
+# TypeScript cache
+*.tsbuildinfo
